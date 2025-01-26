@@ -5,6 +5,7 @@ from flask_cors import CORS
 import yfinance as yf
 import threading
 import time
+from datetime import datetime
 from waitress import serve  # waitress 임포트
 import signal
 
@@ -32,9 +33,7 @@ CORS(app)
 
 # 주식 심볼 리스트
 symbols = ['NVDA', 'AAPL']
-
-# 실시간 주가 데이터를 저장할 딕셔너리
-stock_data = {symbol: None for symbol in symbols}
+stock_data = {}  # 주식 데이터 저장
 
 # 스레드 간 동기화를 위한 Lock
 data_lock = threading.Lock()
@@ -44,22 +43,26 @@ def fetch_stock_prices():
         for symbol in symbols:
             try:
                 stock = yf.Ticker(symbol)
-                stock_info = stock.history(period="1d", interval="1m")
+                stock_info = stock.history(period="1d", interval="1m")  # 1분 간격 데이터
                 if not stock_info.empty:
-                    latest_price = stock_info['Close'].iloc[-1]
-                    stock_data[symbol] = latest_price
+                    latest_data = stock_info.iloc[-1]  # 가장 최근 데이터
+                    current_minute = datetime.now().replace(second=0, microsecond=0)  # 분 단위 시간
+                    stock_data[symbol] = {
+                        "open": latest_data['Open'],  # 시가
+                        "high": latest_data['High'],  # 고가
+                        "low": latest_data['Low'],  # 저가
+                        "close": latest_data['Close'],  # 종가
+                        "timestamp": int(current_minute.timestamp() * 1000),  # 분 단위 timestamp (밀리초)
+                    }
                 else:
                     print(f"No data found for {symbol}")
             except Exception as e:
                 print(f"Error fetching data for {symbol}: {e}")
-        time.sleep(1)
+        time.sleep(1)  # 1초마다 데이터 갱신
 
-@app.route('/stocks', methods=['GET'])
+@app.route("/stocks", methods=["GET"])
 def get_stocks():
-    """주식 가격을 반환하는 REST API 엔드포인트"""
-    with data_lock:
-        logger.debug(f"Current stock data: {stock_data}")
-        return jsonify(stock_data)
+    return jsonify(stock_data)
 
 @app.route('/shutdown', methods=['POST'])
 def shutdown():
